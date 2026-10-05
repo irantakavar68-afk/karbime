@@ -1,121 +1,221 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const KarBimeApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class KarBimeApp extends StatelessWidget {
+  const KarBimeApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'کاربیمه',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const UnemploymentCalcScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class UnemploymentCalcScreen extends StatefulWidget {
+  const UnemploymentCalcScreen({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<UnemploymentCalcScreen> createState() => _UnemploymentCalcScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _UnemploymentCalcScreenState extends State<UnemploymentCalcScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _salaryController = TextEditingController();
+  final TextEditingController _recordController = TextEditingController();
+  final TextEditingController _dependentsController = TextEditingController(text: '0');
 
-  void _incrementCounter() {
+  bool _isMarried = false;
+  Map<String, dynamic>? _calculationResult;
+
+  // حداقل دستمزد روزانه مبنا (ریال)
+  final double minDailyWage = 2388728; 
+
+  void _calculate() {
+    if (!_formKey.currentState!.validate()) return;
+
+    double avgSalary90Days = double.parse(_salaryController.text.replaceAll(',', ''));
+    int recordMonths = int.parse(_recordController.text);
+    int dependents = int.parse(_dependentsController.text);
+
+    if (recordMonths < 6) {
+      setState(() {
+        _calculationResult = {
+          'eligible': false,
+          'message': 'سابقه پرداخت حق بیمه کمتر از ۶ ماه است. طبق ماده ۷ قانون بیمه بیکاری، شرایط دریافت مقرری احراز نشد.'
+        };
+      });
+      return;
+    }
+
+    // ۱. محاسبه مدت پرداخت مقرری بر اساس جدول ماده ۷
+    int durationMonths = 0;
+    if (!_isMarried && dependents == 0) {
+      if (recordMonths >= 6 && recordMonths <= 24) durationMonths = 6;
+      else if (recordMonths <= 120) durationMonths = 12;
+      else if (recordMonths <= 180) durationMonths = 18;
+      else if (recordMonths <= 240) durationMonths = 26;
+      else durationMonths = 36;
+    } else {
+      if (recordMonths >= 6 && recordMonths <= 24) durationMonths = 12;
+      else if (recordMonths <= 120) durationMonths = 18;
+      else if (recordMonths <= 180) durationMonths = 26;
+      else if (recordMonths <= 240) durationMonths = 36;
+      else durationMonths = 50;
+    }
+
+    // ۲. محاسبه مبلغ روزانه مقرری
+    double dailyAvgWage = avgSalary90Days / 30.0;
+    double baseDailyPension = dailyAvgWage * 0.55;
+
+    // افزایش بابت افراد تحت تکفل (حداکثر ۴ نفر)
+    int validDependents = dependents > 4 ? 4 : dependents;
+    double dependentsIncrease = dailyAvgWage * (validDependents * 0.10);
+    double totalDailyPension = baseDailyPension + dependentsIncrease;
+
+    // اعمال سقف ۸۰ درصد متوسط دستمزد
+    double maxAllowedDaily = dailyAvgWage * 0.80;
+    if (totalDailyPension > maxAllowedDaily) {
+      totalDailyPension = maxAllowedDaily;
+    }
+
+    // اعمال کف حداقل دستمزد قانون کار
+    if (totalDailyPension < minDailyWage) {
+      totalDailyPension = minDailyWage;
+    }
+
+    double monthlyPension = totalDailyPension * 30.0;
+
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _calculationResult = {
+        'eligible': true,
+        'durationMonths': durationMonths,
+        'monthlyPension': monthlyPension.round(),
+        'dailyPension': totalDailyPension.round(),
+      };
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('سامانه محاسبات کاربیمه'),
+          backgroundColor: Colors.blueGrey.shade800,
+          foregroundColor: Colors.white,
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'محاسبه‌گر بیمه بیکاری (ماده ۷ قانون بیمه بیکاری)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _salaryController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'میانگین حقوق ۹۰ روز آخر (ریال)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.isEmpty) ? 'این فیلد الزامی است' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _recordController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'کل سابقه بیمه پردازی (به ماه)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.isEmpty) ? 'این فیلد الزامی است' : null,
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  title: const Text('وضعیت تأهل (متاهل یا متکفل)'),
+                  value: _isMarried,
+                  onChanged: (val) => setState(() => _isMarried = val),
+                ),
+                TextFormField(
+                  controller: _dependentsController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'تعداد افراد تحت تکفل (حداکثر ۴ نفر)',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => (v == null || v.isEmpty) ? 'تعداد را وارد کنید' : null,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _calculate,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueGrey.shade800,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('محاسبه مقرری و مدت استحقاق'),
+                ),
+                const SizedBox(height: 20),
+                if (_calculationResult != null) _buildResultBox(),
+              ],
             ),
-          ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+    );
+  }
+
+  Widget _buildResultBox() {
+    if (_calculationResult!['eligible'] == false) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          border: Border.all(color: Colors.red),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          _calculationResult!['message'],
+          style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        border: Border.all(color: Colors.green),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('نتیجه محاسبه استحقاق:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Divider(),
+          Text('مدت پرداخت مقرری: ${_calculationResult!['durationMonths']} ماه'),
+          const SizedBox(height: 6),
+          Text('مقرری ماهانه تخمینی: ${_calculationResult!['monthlyPension']} ریال'),
+          const SizedBox(height: 6),
+          Text('مقرری روزانه: ${_calculationResult!['dailyPension']} ریال'),
+        ],
       ),
     );
   }
